@@ -8,7 +8,6 @@ const types = require('../lists/types');
 const stats = require('../lists/stats');
 const mods = require('../lists/mods');
 const rarity = require('../lists/rarity');
-const { Schema, SchemaType } = require('mongoose');
 
 async function getSession(token){
     try{
@@ -40,9 +39,6 @@ async function getUserData(token){
 router.get('/', async (req, res)=>{
     try{
         const posts = await ItemSell.aggregate([
-            {
-                $sort: {listDate: -1}
-            },
             {
                 $lookup:{
                     from: "items",
@@ -93,7 +89,7 @@ router.get('/base', async (req, res)=>{
         res.status(200).json(items);
     }
     catch(error){
-        res.status(400).json({message: error.message});
+        res.status(500).json({message: error.message});
     }
 });
 
@@ -148,6 +144,106 @@ router.patch('/edit/:id', async(req, res)=>{
     }
     catch(error){
         res.status(400).json({message: error.message});
+    }
+});
+
+router.get('/query', async (req, res)=>{
+    try{
+        const sortBy = req.query.sortField;
+        const sortOrder = req.query.sortOrder;
+
+        let queryActions = [];
+
+        if (sortBy && sortOrder){
+            queryActions.push({
+                $sort: {[sortBy]: Number(sortOrder)}
+            });
+        }
+
+        queryActions.push({
+            $lookup:{
+                from: "items",
+                localField: "itemID",
+                foreignField: "_id",
+                as: "item",
+                pipeline: [{$project:{_id: 0, __v: 0}}]
+            }
+        });
+
+        const fieldContains = (arrayStr, field)=>{
+            if (arrayStr){
+                const listFilter = JSON.parse(arrayStr);
+
+                if (listFilter.length > 0){
+                    queryActions.push({
+                        $match: {[field]: { $in: listFilter}}
+                    });
+                }
+            }
+        }
+
+        fieldContains(req.query.items, 'item.itemname');
+        fieldContains(req.query.types, 'item.type');
+        fieldContains(req.query.rarities, 'rarity');
+
+        function makeValueRangeComp(min, max){
+            let cmp = {};
+            if (min)
+                cmp = {...cmp, $gte: Number(min)};
+            if (max)
+                cmp = {...cmp, $lte: Number(max)};
+            return cmp;
+        }
+
+        const minPrice = req.query.minPrice;
+        const maxPrice = req.query.maxPrice;
+
+        if (minPrice || maxPrice){
+            queryActions.push({
+                $match: {price: makeValueRangeComp(minPrice, maxPrice)}
+            });
+        }
+
+        function makeModCmp(modObj){
+            let cmp = {
+                name: modObj.name
+            };
+
+            if (modObj.val1 || modObj.val2){
+                cmp = {
+                    ...cmp,
+                    val1: makeValueRangeComp(modObj.val1, modObj.val2)
+                };
+            }
+            return cmp;
+        }
+
+        if (req.query.mods){
+            const mods = JSON.parse(req.query.mods);
+            if (mods.length > 0){
+                mods.forEach((ele)=>{
+                    queryActions.push({
+                        $match: {mods: {$elemMatch: makeModCmp(ele)}}
+                    });
+                });
+            }
+        }
+
+        queryActions.push({
+            $lookup:{
+                from: "users",
+                localField: "sellerID",
+                foreignField: "_id",
+                as: "user",
+                pipeline: [{$project:{password: 0, _id: 0, __v: 0}}]
+            }
+        });
+
+        const posts = await ItemSell.aggregate(queryActions);
+        res.json(posts);
+    }
+    catch(error){
+        res.status(500).json({message: error.message});
     }
 });
 
