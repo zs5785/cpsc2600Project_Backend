@@ -1,4 +1,5 @@
 const express = require('express');
+const { ObjectId } = require("mongodb");
 const router = express.Router();
 const Item = require('../models/Item');
 const User = require('../models/User');
@@ -149,10 +150,33 @@ router.patch('/edit/:id', async(req, res)=>{
 
 router.get('/query', async (req, res)=>{
     try{
-        const sortBy = req.query.sortField;
-        const sortOrder = req.query.sortOrder;
+        const sortBy = req.query.sort;
+        const sortOrder = req.query.order;
 
         let queryActions = [];
+
+        if (req.query.ids){
+            const idList = JSON.parse(req.query.ids).map((ele)=>new ObjectId(ele));
+            queryActions.push({
+                $match: {_id: {$in: idList}}
+            });
+        }
+
+        queryActions.push({
+            $lookup:{
+                from: "users",
+                localField: "sellerID",
+                foreignField: "_id",
+                as: "user",
+                pipeline: [{$project:{password: 0, _id: 0, __v: 0}}]
+            }
+        });
+
+        if (req.query.sellerName){
+            queryActions.push({
+                $match: {'user.username': req.query.sellerName}
+            });
+        }
 
         if (sortBy && sortOrder){
             queryActions.push({
@@ -228,16 +252,6 @@ router.get('/query', async (req, res)=>{
                 });
             }
         }
-
-        queryActions.push({
-            $lookup:{
-                from: "users",
-                localField: "sellerID",
-                foreignField: "_id",
-                as: "user",
-                pipeline: [{$project:{password: 0, _id: 0, __v: 0}}]
-            }
-        });
 
         const posts = await ItemSell.aggregate(queryActions);
         res.json(posts);
