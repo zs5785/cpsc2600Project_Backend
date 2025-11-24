@@ -117,18 +117,30 @@ router.post('/sell', async (req, res)=>{
     }
 });
 
+router.get('/find/:id', async (req, res)=>{
+    try{
+        const postData = await ItemSell.findById(req.params.id);
+        res.status(200).json(postData);
+    }
+    catch(err){
+        res.status(400).json({message: err.message});
+    }
+});
+
 router.patch('/edit/:id', async(req, res)=>{
     try{
-        const postID = req.params.id;
         const data = req.body;
-        const oldPost = await ItemSell.findById(req.params.id);
+
+        const postID = req.params.id;
+
+        const oldPost = await ItemSell.findById(postID);
 
         if (!oldPost)
             throw new Error('No Item Post found');
 
         const userData = await getUserData(data.token);
 
-        if (oldPost.sellerID !== userData._id)
+        if (!oldPost.sellerID.equals(userData._id))
             throw new Error('Not Seller');
 
         const postData = {
@@ -142,6 +154,30 @@ router.patch('/edit/:id', async(req, res)=>{
         const updatedPost = await ItemSell.findByIdAndUpdate(postID, postData);
 
         res.status(200).json(updatedPost);
+    }
+    catch(error){
+        res.status(400).json({message: error.message});
+    }
+});
+
+router.delete('/delete/:data', async (req, res) =>{
+    try{
+        const data = JSON.parse(req.params.data);
+        const oldPost = await ItemSell.findById(data.id);
+
+        if (!oldPost)
+            throw new Error('No Item Post found');
+
+        const userData = await getUserData(data.token);
+
+        console.log(oldPost.sellerID);
+        console.log(userData._id);
+        
+        if (!oldPost.sellerID.equals(userData._id))
+            throw new Error('Not Seller');
+
+        await ItemSell.findByIdAndDelete(data.id);
+        res.status(200).json({message: 'deleted'});
     }
     catch(error){
         res.status(400).json({message: error.message});
