@@ -7,17 +7,17 @@ const bcrypt = require('bcrypt');
 
 const saltRounts = 10;
 
-async function makeSession(username){
+async function makeSession(username, role){
     try{
         const userToken = uuid.v4();
 
         const updatedSession = await Session.updateOne(
             {username: username}, 
-            {username: username, token: userToken},
+            {username: username, token: userToken, startDate: Date()},
             {upsert: true});
 
         if (updatedSession)
-            return {username: username, token: userToken};
+            return {username: username, token: userToken, role: role};
         else
             throw new Error("Cant update session");
     }
@@ -26,32 +26,37 @@ async function makeSession(username){
     }
 }
 
-async function getUser(token){
-    try{
-        const userData = await Session.findOne({token: token});
-        if (userData)
-            return userData;
-        else
-            throw new Error('Cant find user with token ' + token);
-    }
-    catch (error){
-        throw error;
-    }
-}
-
 router.get('/:token', async (req, res)=>{
-    const sessionData = await Session.findOne({token: req.params.token});
-    if (sessionData){
-        const userData = await User.findOne({username: sessionData.username}, {password: 0});
+    const maxTokenSeconds = 1200;
+
+    const token = req.params.token;
+
+    const sessionData = await Session.aggregate([
+        {
+            $match:{token: token}
+        },
+        {
+            $project:{
+                username: 1,
+                token: 1,
+                endDate: {$dateDiff:{startDate: "$startDate", endDate: new Date(), unit: 'second'}}
+            }
+        },
+        {
+            $match: { endDate: {$lte: maxTokenSeconds}}
+        }
+    ]);
+    if (sessionData && sessionData.length > 0){
+        const userData = await User.findOne({username: sessionData[0].username}, {password: 0});
         if (userData)
-            res.status(200).json(userData);
+            res.status(200).json({username: userData.username, role: userData.role, token: token});
         else
             res.status(400).json('Cant find user');
     }
     else
         res.status(400).json('Token invalid');
 
-})
+});
 
 router.post('/login', async (req, res)=>{
     try{
@@ -61,7 +66,7 @@ router.post('/login', async (req, res)=>{
         if (!userData)
             res.status(400).json({message: 'User doesnt exist'});
         else if (bcrypt.compareSync(input.password, userData.password)){
-            const sessionData = await makeSession(userData.username);
+            const sessionData = await makeSession(userData.username, userData.role);
             res.status(200).json(sessionData);
         }
         else
@@ -86,7 +91,7 @@ router.post('/signup', async (req, res)=>{
         });
 
         const newUser = await userData.save();
-        const sessionData = await makeSession(newUser.username);
+        const sessionData = await makeSession(newUser.username, newUser.role);
         res.status(200).json(sessionData);
     }
     catch(error){

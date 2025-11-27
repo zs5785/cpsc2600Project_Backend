@@ -37,6 +37,10 @@ async function getUserData(token){
     }
 }
 
+function userIsNotAdmin(userData){
+    return userData.role !== 'admin';
+}
+
 router.get('/', async (req, res)=>{
     try{
         const posts = await ItemSell.aggregate([
@@ -140,7 +144,7 @@ router.patch('/edit/:id', async(req, res)=>{
 
         const userData = await getUserData(data.token);
 
-        if (!oldPost.sellerID.equals(userData._id))
+        if (userIsNotAdmin(userData) && !oldPost.sellerID.equals(userData._id))
             throw new Error('Not Seller');
 
         const postData = {
@@ -169,11 +173,8 @@ router.delete('/delete/:data', async (req, res) =>{
             throw new Error('No Item Post found');
 
         const userData = await getUserData(data.token);
-
-        console.log(oldPost.sellerID);
-        console.log(userData._id);
         
-        if (!oldPost.sellerID.equals(userData._id))
+        if (userIsNotAdmin(userData) && !oldPost.sellerID.equals(userData._id))
             throw new Error('Not Seller');
 
         await ItemSell.findByIdAndDelete(data.id);
